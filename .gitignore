@@ -1,0 +1,6 @@
+*.xlsx
+cached/
+*.txt
+*.~lock*
+__pycache__/
+*.log
