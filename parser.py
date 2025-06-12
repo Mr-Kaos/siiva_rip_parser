@@ -392,19 +392,22 @@ def parse_jokes(text_box, existing_jokes):
 							invalid_joke = True
 
 						line = line[1:].replace("''", '').strip()
-						
-						# If joke name starts with quotation marks, remove them from start and end.
-						if (line[0] == '"'):
-							line = line[1:len(line) -1]
+						if (len(line) > 0):
+							
+							# If joke name starts with quotation marks, remove them from start and end.
+							if (line[0] == '"'):
+								line = line[1:len(line) -1]
 
-						joke_name = None
-						matches = re.search(r'\[\[(.*)\]\]', line, re.IGNORECASE)
-						if (matches is None):
-							joke_name = line.strip()
+							joke_name = None
+							matches = re.search(r'\[\[(.*)\]\]', line, re.IGNORECASE)
+							if (matches is None):
+								joke_name = line.strip()
+							else:
+								joke_name = matches.groups()[0]
+
+							joke = prepare_joke_struct(joke, existing_jokes, joke_name)
 						else:
-							joke_name = matches.groups()[0]
-
-						joke = prepare_joke_struct(joke, existing_jokes, joke_name)
+							invalid_joke = True
 
 				lineCounter += 1
 				debug_prev_line = line
@@ -530,12 +533,13 @@ def get_fandom_data(text_box, metas):
 				ripper_text = ripper_text[:ripper_text.find('<ref>')].strip()
 			# Else, match for double square braces.
 			# (Exclude cases where it states "see [[x", as these are usually links to a another page)
-			if ('see [[' not in ripper_text) and ('#' not in ripper_text):
+			if ('see [[' not in ripper_text) and ('#' not in ripper_text) and ('<!--' not in ripper_text):
 				# matches = re.search(r'(|.*author*=*.)\[\[(.*?)\]\]', ripper_text)
 				matches = re.finditer(r'(|.*author*=*.)\[\[(.*?)\]\]', ripper_text)
 				if (matches is not None):
 					matchFound = False
 
+					# If matches are found, add them all
 					for match in matches:
 						matchFound = True
 						ripper = match.groups()[1]
@@ -548,7 +552,13 @@ def get_fandom_data(text_box, metas):
 						ripper = run_sql_proc('usp_InsertRipper', (ripper, 0))
 						rippers[ripper] = alias
 
+					# If no match was found, add the line
 					if not matchFound and ripper_text != '':
+						# In case there is a formatting error and the table row (| character) is not on a new line, find it and end the text there.
+						cutoff = ripper_text.find('|')
+						if cutoff != -1:
+							ripper_text = ripper_text[:cutoff]
+						
 						ripper = run_sql_proc('usp_InsertRipper', (ripper_text.strip(), 0))
 						rippers[ripper] = None
 				else:
@@ -572,7 +582,7 @@ def get_fandom_data(text_box, metas):
 #parses a worksheet from the spreadsheet and adds it to the array of rips.
 def parse_worksheet(sheet_name, channel, metas):
 	ws = wb[sheet_name]
-	row_start = 16330
+	row_start = 941
 	rowNum = row_start
 	rows = 50
 
