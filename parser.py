@@ -252,6 +252,30 @@ def insert_joke(joke):
 		joke_id = run_sql_proc('usp_InsertJoke', (joke['name'], None, joke['primary_tag'], tags, meta_jokes, 0))
 	return joke_id
 
+# validates the given timestamp to a format supported by the database
+def validate_timestamp(timestamp):
+	validated = None
+
+	# Ensure that colons are placed in the correct positions
+	if len(timestamp) > 2:
+		if timestamp[len(timestamp) - 3] == ':':
+			# If the string is longer than 5 characters, i.e. specifies hours, check that the hours colon is correctly placed.
+			if len(timestamp) > 5:
+				if timestamp[len(timestamp) - 6] == ':':
+					validated = timestamp.replace(':', '')
+
+					# If the hours are just zeros, remove them.
+					if timestamp[:1] == '00':
+						validated = timestamp[2:]
+			else:
+				validated = timestamp.replace(':', '')
+
+			# If the validated timestamp is odd, add a leading 0.
+			if len(validated) % 2 == 1:
+				validated = '0' + validated
+
+	return validated
+
 def parse_jokes(text_box, existing_jokes):
 	# Get jokes segment
 	joke_ids = {}
@@ -334,8 +358,8 @@ def parse_jokes(text_box, existing_jokes):
 								if (timestamps.group() is not None):
 									time = timestamps.group()
 									split = time.split('-')
-									start = split[0].replace(':', '').strip()
-									end = split[1].replace(':', '').strip()
+									start = validate_timestamp(split[0].strip())
+									end = validate_timestamp(split[1].strip())
 									joke['timestamps'].append({'start': start, 'end': end})
 									last_start = start
 									last_end = end
@@ -344,12 +368,16 @@ def parse_jokes(text_box, existing_jokes):
 								last_end = None
 								if len(timestamps.groups()) > 0:
 									for time in timestamps.groups():
+										time = validate_timestamp(time)
 										joke['timestamps'].append({'start': time})
 										last_start = time
 								else:
-									joke['timestamps'].append({'start': timestamps.group()})
-									last_start = timestamps.group()
+									last_start = validate_timestamp(timestamps.group())
+									joke['timestamps'].append({'start': last_start})
+
+							# print (timestamps)
 						else:
+							print (last_start, last_end)
 							if last_start is not None and last_end is None:
 								joke['timestamps'].append({'start': last_start})
 							elif last_end is not None:
@@ -528,6 +556,9 @@ def get_fandom_data(text_box, metas):
 					if (ripper_text != ''):
 						ripper = run_sql_proc('usp_InsertRipper', (ripper_text.strip(), 0))
 						rippers[ripper] = None
+			
+			# if len(rippers) == 0:
+			# 	print ("No rippers found!")
 		rippers = json.dumps(rippers)
 
 		# Jokes
