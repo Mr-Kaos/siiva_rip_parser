@@ -1,5 +1,4 @@
-from datetime import datetime
-import pycurl
+# from datetime import datetime
 import os
 import re
 import fandom_extract
@@ -9,6 +8,7 @@ import mysql.connector
 import json
 import csv
 import traceback
+from urllib.parse import unquote
 from openpyxl import Workbook, load_workbook
 
 # The csv file of jokes can have multiple search criteria matches if a term is very generic.
@@ -320,97 +320,99 @@ def parse_jokes(text_box, existing_jokes):
 			lineCounter = 0
 			for line in joke_data.splitlines():
 				# print (line, lineCounter, skip_timestamp_rows)
+				if len(line) > 0:
 
-				# If the line is a header, ignore it.
-				if (line[0] != '!'):
+					# If the line is a header, ignore it.
+					if (line[0] != '!'):
 
-					# If end of joke, Add data to list
-					if (line == '|-' or line == '|}'):
-						if skip_timestamp_rows > 0:
-							skip_timestamp_rows -= 1
+						# If end of joke, Add data to list
+						if (line == '|-' or line == '|}'):
+							if skip_timestamp_rows > 0:
+								skip_timestamp_rows -= 1
 
-						# If the joke is not invalid, add it. Disable this if statement to add invalid jokes.
-						if not joke['name'] is None and not invalid_joke:
-							joke_id = insert_joke(joke)
-							joke_ids[joke_id] = {'timestamps': joke['timestamps'], 'comment': None}
+							# If the joke is not invalid, add it. Disable this if statement to add invalid jokes.
+							if not joke['name'] is None and not invalid_joke:
+								joke_id = insert_joke(joke)
+								joke_ids[joke_id] = {'timestamps': joke['timestamps'], 'comment': None}
 
-						# reset joke
-						joke = {'name': None, 'timestamps': [], 'meta_joke': None, 'tags': None, 'primary_tag': None}
-						invalid_joke = False
-						if (skip_timestamp_rows > 0):
-							lineCounter = 1
-						else:
-							lineCounter = 0
-						continue
-
-					# If the first line of a joke, but the timestamp is omitted, set the line counter to the next line to get the joke name
-					if lineCounter == 0:
-						# if 'rowspan' in line:
-						# 	skip_timestamp_rows = int(re.search(r'rowspan?.=?.([0-9])', line).groups()[0])
-
-						if skip_timestamp_rows == 0:
-							# print('parsing timestamp:', line, skip_timestamp_rows)
-							# If the timestamp has a rowspan, skip a row
-
-							# If the timestamp has a start and end, get it
-							if ('-' in line):
-								timestamps = re.search(r'(?:[0-9]{0,2}:?[0-9]{0,2}:[0-9]{0,2}).-.(?:[0-9]{0,2}:?[0-9]{0,2}:[0-9]{0,2})', line)
-								if (timestamps.group() is not None):
-									time = timestamps.group()
-									split = time.split('-')
-									start = validate_timestamp(split[0].strip())
-									end = validate_timestamp(split[1].strip())
-									joke['timestamps'].append({'start': start, 'end': end})
-									last_start = start
-									last_end = end
+							# reset joke
+							joke = {'name': None, 'timestamps': [], 'meta_joke': None, 'tags': None, 'primary_tag': None}
+							invalid_joke = False
+							if (skip_timestamp_rows > 0):
+								lineCounter = 1
 							else:
-								timestamps = re.search(r'(?:[0-9]{0,2}:?[0-9]{0,2}:[0-9]{0,2})', line)
-								last_end = None
-								if len(timestamps.groups()) > 0:
-									for time in timestamps.groups():
-										time = validate_timestamp(time)
-										joke['timestamps'].append({'start': time})
-										last_start = time
+								lineCounter = 0
+							continue
+
+						# If the first line of a joke, but the timestamp is omitted, set the line counter to the next line to get the joke name
+						if lineCounter == 0:
+							# if 'rowspan' in line:
+							# 	skip_timestamp_rows = int(re.search(r'rowspan?.=?.([0-9])', line).groups()[0])
+
+							if skip_timestamp_rows == 0:
+								# print('parsing timestamp:', line, skip_timestamp_rows)
+								# If the timestamp has a rowspan, skip a row
+
+								# If the timestamp has a start and end, get it
+								if ('-' in line):
+									timestamps = re.search(r'(?:[0-9]{0,2}:?[0-9]{0,2}:[0-9]{0,2}).-.(?:[0-9]{0,2}:?[0-9]{0,2}:[0-9]{0,2})', line)
+									if (timestamps is not None and timestamps.group() is not None):
+										time = timestamps.group()
+										split = time.split('-')
+										start = validate_timestamp(split[0].strip())
+										end = validate_timestamp(split[1].strip())
+										joke['timestamps'].append({'start': start, 'end': end})
+										last_start = start
+										last_end = end
 								else:
-									last_start = validate_timestamp(timestamps.group())
-									joke['timestamps'].append({'start': last_start})
-
-							# print (timestamps)
-						else:
-							print (last_start, last_end)
-							if last_start is not None and last_end is None:
-								joke['timestamps'].append({'start': last_start})
-							elif last_end is not None:
-								joke['timestamps'].append({'start': last_start, 'end': last_end})
-
-						if 'rowspan' in line:
-							skip_timestamp_rows = int(re.search(r'rowspan?.=?.([0-9])', line).groups()[0])
-
-					# joke name
-					elif lineCounter == 1:
-						if ('???' in line):
-							invalid_joke = True
-
-						line = line[1:].replace("''", '').strip()
-						if (len(line) > 0):
-							
-							# If joke name starts with quotation marks, remove them from start and end.
-							if (line[0] == '"'):
-								line = line[1:len(line) -1]
-
-							joke_name = None
-							matches = re.search(r'\[\[(.*)\]\]', line, re.IGNORECASE)
-							if (matches is None):
-								joke_name = line.strip()
+									timestamps = re.search(r'(?:[0-9]{0,2}:?[0-9]{0,2}:[0-9]{0,2})', line)
+									last_end = None
+									if timestamps is not None:
+										if len(timestamps.groups()) > 0:
+											for time in timestamps.groups():
+												time = validate_timestamp(time)
+												joke['timestamps'].append({'start': time})
+												last_start = time
+										else:
+											last_start = validate_timestamp(timestamps.group())
+											joke['timestamps'].append({'start': last_start})
 							else:
-								joke_name = matches.groups()[0]
+								print (last_start, last_end)
+								if last_start is not None and last_end is None:
+									joke['timestamps'].append({'start': last_start})
+								elif last_end is not None:
+									joke['timestamps'].append({'start': last_start, 'end': last_end})
 
-							joke = prepare_joke_struct(joke, existing_jokes, joke_name)
-						else:
-							invalid_joke = True
+							if 'rowspan' in line:
+								r = re.search(r'rowspan?.=?.([0-9])', line)
+								if r is not None:
+									skip_timestamp_rows = int(r.groups()[0])
 
-				lineCounter += 1
-				debug_prev_line = line
+						# joke name
+						elif lineCounter == 1:
+							if ('???' in line):
+								invalid_joke = True
+
+							line = line[1:].replace("''", '').strip()
+							if (len(line) > 0):
+								
+								# If joke name starts with quotation marks, remove them from start and end.
+								if (line[0] == '"'):
+									line = line[1:len(line) -1]
+
+								joke_name = None
+								matches = re.search(r'\[\[(.*)\]\]', line, re.IGNORECASE)
+								if (matches is None):
+									joke_name = line.strip()
+								else:
+									joke_name = matches.groups()[0]
+
+								joke = prepare_joke_struct(joke, existing_jokes, joke_name)
+							else:
+								invalid_joke = True
+
+					lineCounter += 1
+					debug_prev_line = line
 
 	return joke_ids
 	
@@ -440,11 +442,17 @@ def load_fandom_page(url):
 	name = name.replace('\n', '')
 	name = name.replace('%20', '_')
 	file_name = "./cached/" + name + ".txt"
+	decoded = unquote(url)
+	decoded = decoded.replace('/', '')
+	decoded = decoded.replace('https:', '')
+	decoded = decoded.replace('.fandom.comwiki', '_')
+	decoded = "./cached/" + decoded + ".txt"
 
-	# print(file_name, url)
+	if len(file_name) > 255:
+		file_name = decoded
 
 	# If the file does not exist, extract the page from fandom and save it.
-	if not os.path.exists(file_name):
+	if not os.path.exists(file_name) and not os.path.exists(decoded):
 		file = open(file_name, "w")
 
 		response = requests.get(url + '?action=edit')
@@ -454,6 +462,11 @@ def load_fandom_page(url):
 		file.write(page_data)
 		file.close()
 	else:
+		# If the decoded name is not used, rename the file to the decoded version
+		if not os.path.exists(decoded):
+			os.rename(file_name, decoded)
+		
+		file_name = decoded
 		file = open(file_name, "r")
 		page_data = file.read()
 		cached = True
@@ -489,11 +502,19 @@ def get_fandom_data(text_box, metas):
 			if ('announcements;' in game.lower()):
 				game = None
 			else:
-				game = run_sql_proc('usp_InsertGame', (game, None, 0))
+				# In case there is a formatting error and the table row (| character) is not on a new line, find it and end the text there.
+				cutoff = game.find('|')
+				if cutoff != -1:
+					game = game[:cutoff]
+
+				if len(game) <= 256:
+					game = run_sql_proc('usp_InsertGame', (game, None, 0))
+				else:
+					game = None
 
 	if (not game is None):
 		# Track name
-		match = re.search(r'track*.= *.\[(http.*?) (.*)]', text_box)
+		match = re.search(r'track*.= *.\[(http.*?) (.*?)\]', text_box)
 		if (match is not None):
 			if (len(match.groups()) > 0):
 				alt_url = match.group(1).strip()
@@ -582,9 +603,9 @@ def get_fandom_data(text_box, metas):
 #parses a worksheet from the spreadsheet and adds it to the array of rips.
 def parse_worksheet(sheet_name, channel, metas):
 	ws = wb[sheet_name]
-	row_start = 941
+	row_start = 7600
 	rowNum = row_start
-	rows = 50
+	rows = 20000
 
 	for row in ws.iter_rows(min_row=2 + row_start, max_col=6,max_row=row_start + rows + 1,values_only=True):
 		# print(rowNum)
