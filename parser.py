@@ -211,14 +211,17 @@ def prepare_joke_struct(joke, existing_jokes, data):
 		joke['primary_tag'] = None
 		joke['tags'] = None
 		if (tags is not None):
+			# If the first tag is not empty, set it as primary
 			if (tags[0] != ''):
 				tag_id = run_sql_proc('usp_InsertTag', (tags[0], 0))
 				joke['primary_tag'] = tag_id
+			# If there are other tags, add them (if they are also not empty)
 			if (len(tags) > 1):
 				joke['tags'] = []
 				for tag in tags[1:]:
-					tag_id = run_sql_proc('usp_InsertTag', (tag, 0))
-					joke['tags'].append(tag_id)
+					if (tag != ''):
+						tag_id = run_sql_proc('usp_InsertTag', (tag, 0))
+						joke['tags'].append(tag_id)
 
 				if len(joke['tags']) == 0:
 					joke['tags'] = None
@@ -359,6 +362,7 @@ def parse_jokes(text_box, existing_jokes):
 					elif lineCounter == 1:
 						if ('???' in line):
 							invalid_joke = True
+
 						line = line[1:].replace("''", '').strip()
 						
 						# If joke name starts with quotation marks, remove them from start and end.
@@ -406,6 +410,8 @@ def load_fandom_page(url):
 	name = name.replace('%20', '_')
 	file_name = "./cached/" + name + ".txt"
 
+	# print(file_name, url)
+
 	# If the file does not exist, extract the page from fandom and save it.
 	if not os.path.exists(file_name):
 		file = open(file_name, "w")
@@ -423,16 +429,23 @@ def load_fandom_page(url):
 
 	return page_data, cached
 
+def find_all_matches(pattern, string, group=0):
+    pat = re.compile(pattern)
+    pos = 0
+    out = []
+    while m := pat.search(string, pos):
+        pos = m.start() + 1
+        out.append(m[group])
+    return out
+
 def get_fandom_data(text_box, metas):
 	game = None
 	track = None
 	alt_url = None
 	categories = None
 	rippers = None
-	yt_id = None
 	jokes = None
 
-	
 	# print (url, text_box)
 
 	# Game name
@@ -445,7 +458,6 @@ def get_fandom_data(text_box, metas):
 			if ('announcements;' in game.lower()):
 				game = None
 			else:
-				print (game)
 				game = run_sql_proc('usp_InsertGame', (game, None, 0))
 
 	if (not game is None):
@@ -455,12 +467,6 @@ def get_fandom_data(text_box, metas):
 			if (len(match.groups()) > 0):
 				alt_url = match.group(1).strip()
 				track = match.group(2).strip()
-
-		# YouTube ID
-		match = re.search(r'link*.=(.*)', text_box)
-		if (match is not None):
-			if (len(match.groups()) > 0):
-				yt_id = match.group(1).strip()
 
 		# Genres
 		categories = []
@@ -494,50 +500,62 @@ def get_fandom_data(text_box, metas):
 			# If '<ref>' tags exist, remove them
 			if ('<ref>' in ripper_text):
 				ripper_text = ripper_text[:ripper_text.find('<ref>')].strip()
-				ripper = run_sql_proc('usp_InsertRipper', (ripper_text, 0))
-				rippers[ripper] = None
 			# Else, match for double square braces.
 			# (Exclude cases where it states "see [[x", as these are usually links to a another page)
-			elif ('see [[' not in ripper_text) and ('#' not in ripper_text):
-				matches = re.search(r'(|.*author*=*.)\[\[(.*?)\]\]', ripper_text)
+			if ('see [[' not in ripper_text) and ('#' not in ripper_text):
+				# matches = re.search(r'(|.*author*=*.)\[\[(.*?)\]\]', ripper_text)
+				matches = re.finditer(r'(|.*author*=*.)\[\[(.*?)\]\]', ripper_text)
 				if (matches is not None):
-					if (len(matches.groups()) > 1):
-						i = 1
-						for x in range(len(matches.groups()) - 1):
-							# Split alias, if one exists
-							alias = None
-							ripper = matches.groups()[i]
-							if ('|' in ripper):
-								split = ripper.split('|')
-								ripper = split[0]
-								alias = split[1]
+					matchFound = False
 
-							ripper = run_sql_proc('usp_InsertRipper', (ripper, 0))
-							rippers[ripper] = alias
-							i += 1
+					for match in matches:
+						matchFound = True
+						ripper = match.groups()[1]
+						alias = None
+						if ('|' in ripper):
+							split = ripper.split('|')
+							ripper = split[0]
+							alias = split[1]
+
+						ripper = run_sql_proc('usp_InsertRipper', (ripper, 0))
+						rippers[ripper] = alias
+
+					if not matchFound and ripper_text != '':
+						ripper = run_sql_proc('usp_InsertRipper', (ripper_text.strip(), 0))
+						rippers[ripper] = None
+				else:
+					ripper_text = ripper_text.strip()
+					if (ripper_text != ''):
+						ripper = run_sql_proc('usp_InsertRipper', (ripper_text.strip(), 0))
+						rippers[ripper] = None
 		rippers = json.dumps(rippers)
 
 		# Jokes
 		jokes = parse_jokes(text_box, metas)
 		if jokes is not None:
 			jokes = json.dumps(jokes)
-		# print (jokes)
 		
 	# Game is not returned as it often produces unreliable results.
-	return track, alt_url, categories, jokes, rippers, yt_id
+	return track, alt_url, categories, jokes, rippers
 
 #parses a worksheet from the spreadsheet and adds it to the array of rips.
 def parse_worksheet(sheet_name, channel, metas):
 	ws = wb[sheet_name]
-	row_start = 0
+	row_start = 16330
 	rowNum = row_start
-	rows = 1000
+	rows = 50
 
 	for row in ws.iter_rows(min_row=2 + row_start, max_col=6,max_row=row_start + rows + 1,values_only=True):
-		print(rowNum)
+		# print(rowNum)
 		name = re.search(r', "(.*)"', row[1]).group(1)
 		url = re.search(r'^.*\("(.*)?",', row[0]).group(1)
 		date = row[4]
+		yt_id = re.search(r'"([A-Za-z0-9_\-]{11})"', row[0])
+		if (yt_id is not None):
+			yt_id = yt_id.group(1)
+		else:
+			yt_id = None
+
 		# If the length is empty, skip rip
 		if row[5] != None:
 			length = parse_length(row[5])
@@ -550,7 +568,7 @@ def parse_worksheet(sheet_name, channel, metas):
 			if (text_box == ''):
 				print('Null wiki page: "' + fandom_url + '"')
 			else:
-				track, alt_url, genres, jokes, rippers, yt_id = get_fandom_data(text_box, metas)
+				track, alt_url, genres, jokes, rippers = get_fandom_data(text_box, metas)
 
 				game = re.search(r'", ".* [-](.*)"', row[1])
 				if (game is not None):
@@ -568,10 +586,10 @@ def parse_worksheet(sheet_name, channel, metas):
 				# 0.5 second delay to avoid overloading fandom with requests
 				if not cached:
 					time.sleep(0.7)
-		# except Exception as exc:
-			# print ('Failed to obtain rip data. Row: ' + str(rowNum) + ' fandom: ' + fandom_url)
-			# traceback.print_tb(exc.__traceback__)
-			# traceback.print_exc()
+			# except Exception as exc:
+			# 	print ('Failed to obtain rip data. Row: ' + str(rowNum) + ' fandom: ' + fandom_url)
+			# 	traceback.print_tb(exc.__traceback__)
+			# 	traceback.print_exc()
 
 		rowNum += 1
 
