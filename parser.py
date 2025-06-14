@@ -300,7 +300,7 @@ def parse_jokes(text_box, existing_jokes):
 				joke_ids[joke_id] = {'timestamps': joke['timestamps'], 'comment': None}
 			else:
 				print('no joke match!')
-				write_missing_joke(joke_data)
+				# write_missing_joke(joke_data)
 
 		# Else, check the contents of the jokes table
 		else:
@@ -435,21 +435,18 @@ def read_joke_metas(meta_file):
 	return jokes
 
 # Checks if the given fandom page has been cached for quicker retrieval. If not, caches the page.
-def load_fandom_page(url):
+def load_fandom_page(folder, url):
 	page_data = None
 	cached = False
-	name = url.replace('/', '')
-	name = name.replace('\n', '')
-	name = name.replace('%20', '_')
-	file_name = "./cached/" + name + ".txt"
 	decoded = unquote(url)
 	decoded = decoded.replace('/', '')
 	decoded = decoded.replace('https:', '')
 	decoded = decoded.replace('.fandom.comwiki', '_')
-	decoded = "./cached/" + decoded + ".txt"
+	file_name = "./cached/" + folder + '/' + decoded + ".txt"
 
-	if len(file_name) > 255:
-		file_name = decoded
+	# Make sure the cache dir exists
+	if not os.path.exists("./cached/" + folder):
+		os.mkdir("./cached/" + folder)
 
 	# If the file does not exist, extract the page from fandom and save it.
 	if not os.path.exists(file_name) and not os.path.exists(decoded):
@@ -462,11 +459,6 @@ def load_fandom_page(url):
 		file.write(page_data)
 		file.close()
 	else:
-		# If the decoded name is not used, rename the file to the decoded version
-		if not os.path.exists(decoded):
-			os.rename(file_name, decoded)
-		
-		file_name = decoded
 		file = open(file_name, "r")
 		page_data = file.read()
 		cached = True
@@ -482,7 +474,7 @@ def find_all_matches(pattern, string, group=0):
         out.append(m[group])
     return out
 
-def get_fandom_data(text_box, metas):
+def get_fandom_data(text_box, metas, game):
 	game = None
 	track = None
 	alt_url = None
@@ -598,60 +590,68 @@ def get_fandom_data(text_box, metas):
 			jokes = json.dumps(jokes)
 		
 	# Game is not returned as it often produces unreliable results.
-	return track, alt_url, categories, jokes, rippers
+	return track, alt_url, categories, jokes, rippers, game
 
 #parses a worksheet from the spreadsheet and adds it to the array of rips.
 def parse_worksheet(sheet_name, channel, metas):
 	ws = wb[sheet_name]
-	row_start = 7600
+	row_start = 0
 	rowNum = row_start
-	rows = 20000
+	rows = 40000
 
 	for row in ws.iter_rows(min_row=2 + row_start, max_col=6,max_row=row_start + rows + 1,values_only=True):
 		# print(rowNum)
-		name = re.search(r', "(.*)"', row[1]).group(1)
-		url = re.search(r'^.*\("(.*)?",', row[0]).group(1)
-		date = row[4]
-		yt_id = re.search(r'"([A-Za-z0-9_\-]{11})"', row[0])
-		if (yt_id is not None):
-			yt_id = yt_id.group(1)
+		name_search = re.search(r', "(.*)"', row[1])
+		if name_search is None:
+			print ("Malformed cell! Row:", rowNum)
 		else:
-			yt_id = None
-
-		# If the length is empty, skip rip
-		if row[5] != None:
-			length = parse_length(row[5])
-
-			# try:
-			fandom_url = re.search(r'^.*\("(.*)?",', row[1]).group(1)
-			# print(name, fandom_url)
-			text_box, cached = load_fandom_page(fandom_url)
-
-			if (text_box == ''):
-				print('Null wiki page: "' + fandom_url + '"')
+			name = re.search(r', "(.*)"', row[1]).group(1)
+			url = re.search(r'^.*\("(.*)?",', row[0]).group(1)
+			date = row[4]
+			yt_id = re.search(r'"([A-Za-z0-9_\-]{11})"', row[0])
+			if (yt_id is not None):
+				yt_id = yt_id.group(1)
 			else:
-				track, alt_url, genres, jokes, rippers = get_fandom_data(text_box, metas)
+				yt_id = None
 
-				game = re.search(r'", ".* [-](.*)"', row[1])
-				if (game is not None):
-					game = game.group(1).strip()
-					game = run_sql_proc('usp_InsertGame', (game, None, 0))
+			# If the length is empty, skip rip
+			if row[5] != None:
+				length = parse_length(row[5])
 
-				# print(name, track, None, date, length, url, alt_url, game, channel, genres, jokes, rippers)
+				try:
+					fandom_url = re.search(r'^.*\("(.*)?",', row[1]).group(1)
+					# print(name, fandom_url)
+					text_box, cached = load_fandom_page(sheet_name, fandom_url)
 
-				if not [x for x in (name, date, length, url, game) if x is None]:
-					Rip(name, track, None, date, length, url, yt_id, alt_url, game, channel, genres, jokes, rippers)
-				else:
-					print('Cannot insert rip as a required value is null! - ' + fandom_url)
-					print(name, date, length, url, game)
+					if (text_box == ''):
+						print('Null wiki page: "' + fandom_url + '"')
+					else:
+						track, alt_url, genres, jokes, rippers, alt_game = get_fandom_data(text_box, metas, game = None)
 
-				# 0.5 second delay to avoid overloading fandom with requests
-				if not cached:
-					time.sleep(0.7)
-			# except Exception as exc:
-			# 	print ('Failed to obtain rip data. Row: ' + str(rowNum) + ' fandom: ' + fandom_url)
-			# 	traceback.print_tb(exc.__traceback__)
-			# 	traceback.print_exc()
+						game = re.search(r'", ".* [-](.*)"', row[1])
+						if (game is not None):
+							game = game.group(1).strip()
+							game = run_sql_proc('usp_InsertGame', (game, None, 0))
+
+						# If the game is not obtained from the spreadsheet, use the name from the fandom page.
+						if game is None:
+							game = alt_game
+
+						# print(name, track, None, date, length, url, alt_url, game, channel, genres, jokes, rippers)
+
+						if not [x for x in (name, date, length, url, game) if x is None]:
+							Rip(name, track, None, date, length, url, yt_id, alt_url, game, channel, genres, jokes, rippers)
+						else:
+							print('Cannot insert rip as a required value is null! - ' + fandom_url)
+							print(name, date, length, url, game)
+
+						# 0.5 second delay to avoid overloading fandom with requests
+						if not cached:
+							time.sleep(1.0)
+				except Exception as exc:
+					print ('Failed to obtain rip data. Row: ' + str(rowNum) + ' fandom: ' + fandom_url)
+					traceback.print_tb(exc.__traceback__)
+					traceback.print_exc()
 
 		rowNum += 1
 
@@ -660,4 +660,5 @@ file = open('joke_sample.txt', 'r')
 jokes = read_joke_metas('meta_jokes.csv')
 
 parse_worksheet('SiIvaGunner', 2, jokes)
+parse_worksheet('TimmyTurnersGrandDad', 3, jokes)
 
