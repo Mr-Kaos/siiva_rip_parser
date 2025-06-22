@@ -256,23 +256,16 @@ def insert_joke(joke):
 def validate_timestamp(timestamp):
 	validated = None
 
-	# Ensure that colons are placed in the correct positions
-	if len(timestamp) > 2:
-		if timestamp[len(timestamp) - 3] == ':':
-			# If the string is longer than 5 characters, i.e. specifies hours, check that the hours colon is correctly placed.
-			if len(timestamp) > 5:
-				if timestamp[len(timestamp) - 6] == ':':
-					validated = timestamp.replace(':', '')
+	segments = timestamp.split(':')
+	parsed = [];
+	for seg in segments:
+		if len(seg) < 2:
+			seg = '0' + seg
+		parsed.append(seg)
 
-					# If the hours are just zeros, remove them.
-					if timestamp[:1] == '00':
-						validated = timestamp[2:]
-			else:
-				validated = timestamp.replace(':', '')
-
-			# If the validated timestamp is odd, add a leading 0.
-			if len(validated) % 2 == 1:
-				validated = '0' + validated
+	validated = ':'.join(parsed)
+	if len(segments) < 3:
+		validated = '00:' + validated
 
 	return validated
 
@@ -298,8 +291,8 @@ def parse_jokes(text_box, existing_jokes):
 			if joke['name'] is not None:
 				joke_id = insert_joke(joke)
 				joke_ids[joke_id] = {'timestamps': joke['timestamps'], 'comment': None}
-			else:
-				print('no joke match!')
+			# else:
+			# 	print('no joke match!')
 				# write_missing_joke(joke_data)
 
 		# Else, check the contents of the jokes table
