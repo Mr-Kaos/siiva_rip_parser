@@ -468,7 +468,7 @@ def find_all_matches(pattern, string, group=0):
     return out
 
 def get_fandom_data(text_box, metas, game):
-	game = None
+	game_name = None
 	track = None
 	alt_url = None
 	categories = None
@@ -482,20 +482,22 @@ def get_fandom_data(text_box, metas, game):
 	match = re.search(r'playlist*.=(.*)', text_box)
 	if (match is not None):
 		if (len(match.groups()) > 0):
-			game = match.group(1).strip()
+			game_name = match.group(1).strip()
 			# If the rip is an announcement, skip it.
-			if ('announcements;' in game.lower()):
+			if ('announcements;' in game_name.lower()):
 				game = None
-			else:
+			elif game_name is None:
 				# In case there is a formatting error and the table row (| character) is not on a new line, find it and end the text there.
-				cutoff = game.find('|')
+				cutoff = game_name.find('|')
 				if cutoff != -1:
-					game = game[:cutoff]
+					game_name = game_name[:cutoff]
 
-				if len(game) <= 256:
-					game = run_sql_proc('usp_InsertGame', (game, None, 0))
+				game_name = game_name.strip()
+
+				if len(game_name) <= 256 and len(game_name) > 0:
+					game = run_sql_proc('usp_InsertGame', (game_name, None, 0))
 				else:
-					game = None
+					game_name = None
 
 	if (not game is None):
 		# Track name
@@ -582,15 +584,15 @@ def get_fandom_data(text_box, metas, game):
 		if jokes is not None:
 			jokes = json.dumps(jokes)
 		
-	# Game is not returned as it often produces unreliable results.
-	return track, alt_url, categories, jokes, rippers, game
+	# The game name returned returned is only used if the one from the spreadsheet is not valid.
+	return track, alt_url, categories, jokes, rippers, game, game_name
 
 #parses a worksheet from the spreadsheet and adds it to the array of rips.
 def parse_worksheet(sheet_name, channel, metas):
 	ws = wb[sheet_name]
 	row_start = 0
 	rowNum = row_start
-	rows = 40000
+	rows = 40000 
 
 	for row in ws.iter_rows(min_row=2 + row_start, max_col=6,max_row=row_start + rows + 1,values_only=True):
 		# print(rowNum)
@@ -619,16 +621,24 @@ def parse_worksheet(sheet_name, channel, metas):
 					if (text_box == ''):
 						print('Null wiki page: "' + fandom_url + '"')
 					else:
-						track, alt_url, genres, jokes, rippers, alt_game = get_fandom_data(text_box, metas, game = None)
+						# Get the game name first. If it is null, the one form the fandom page will be used instead.
+						game_name = re.search(r'", ".* [-](.*)"', row[1])
+						game = None
+						if (game_name is not None):
+							game_name = game_name.group(1).strip()
+							if len(game_name) > 0:
+								game = run_sql_proc('usp_InsertGame', (game_name, None, 0))
 
-						game = re.search(r'", ".* [-](.*)"', row[1])
-						if (game is not None):
-							game = game.group(1).strip()
-							game = run_sql_proc('usp_InsertGame', (game, None, 0))
+						track, alt_url, genres, jokes, rippers, alt_game, alt_game_name = get_fandom_data(text_box, metas, game)
 
 						# If the game is not obtained from the spreadsheet, use the name from the fandom page.
-						if game is None:
+						if game_name is None:
 							game = alt_game
+							game_name = alt_game_name
+
+						# print(name, "|", game,"|", game_name)
+						# Strip the game name from the rip name
+						name = name.replace("- " + game_name, '').strip()
 
 						# print(name, track, None, date, length, url, alt_url, game, channel, genres, jokes, rippers)
 
