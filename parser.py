@@ -54,7 +54,7 @@ class Rip:
 
 	def commit_to_db(self):
 		# Check if the rip already exists.
-		result = run_sql_query("SELECT RipID FROM Rips WHERE RipName = %s", [self.name])
+		result = run_sql_query("SELECT RipID FROM Rips WHERE RipName = %s AND RipGame = %s AND RipChannel = %s", [self.name, self.game, self.channel])
 
 		# If it does, only update its associated jokes, genres and rippers.
 		if (len(result) > 0):
@@ -65,20 +65,20 @@ class Rip:
 				run_sql_query("DELETE FROM RipJokes WHERE RipID = %s", [rip_id])
 				jokes = json.loads(self.jokes)
 				for joke in jokes:
-					run_sql_query("INSERT INTO RipJokes (RipID, JokeID, JokeTimestamps) VALUES (%s, %s, %s)", [rip_id, joke, json.dumps(jokes[joke]['timestamps'])])
+					run_sql_query("INSERT IGNORE INTO RipJokes (RipID, JokeID, JokeTimestamps) VALUES (%s, %s, %s)", [rip_id, joke, json.dumps(jokes[joke]['timestamps'])])
 
 			# Delete and re-insert genre associations
 			if self.genres is not None:
 				run_sql_query("DELETE FROM RipGenres WHERE RipID = %s", [rip_id])
 				for genre in json.loads(self.genres):
-					run_sql_query("INSERT INTO RipGenres (RipID, GenreID) VALUES (%s, %s)", [rip_id, genre])
+					run_sql_query("INSERT IGNORE INTO RipGenres (RipID, GenreID) VALUES (%s, %s)", [rip_id, genre])
 
 			# Delete and re-insert ripper associations
 			if self.rippers is not None:
 				run_sql_query("DELETE FROM RipRippers WHERE RipID = %s", [rip_id])
 				rippers = json.loads(self.rippers)
 				for ripper in rippers:
-					run_sql_query("INSERT INTO RipRippers (RipID, RipperID, Alias) VALUES (%s, %s, %s)", [rip_id, ripper, rippers[ripper]])
+					run_sql_query("INSERT IGNORE INTO RipRippers (RipID, RipperID, Alias) VALUES (%s, %s, %s)", [rip_id, ripper, rippers[ripper]])
 			
 		# Else, insert it
 		else:
@@ -467,6 +467,97 @@ def find_all_matches(pattern, string, group=0):
         out.append(m[group])
     return out
 
+# Gets the ripper name form the text box
+def get_ripper(text_box, key, ignore_key = None):
+	rippers = {}
+	substring = '|' + key
+	start_pos = text_box.find(substring)
+	illegal_start_pos = -1
+
+	# If there is an "illegal" start position, check that the detected position is not the illegal one.
+	# E.g. "|ripper label=" should not be detected when searching for "|ripper =".
+	if (ignore_key != None):
+		illegal_start_pos = text_box.find('|' + ignore_key)
+		if illegal_start_pos == -1:
+			illegal_start_pos = text_box.find('| ' + ignore_key)
+
+	if start_pos == -1:
+		substring = '| ' + key
+		start_pos = text_box.find(substring)
+
+	# If the author field is still not found, do not attempt to get it.
+	if (start_pos == -1):
+		# print('Cannot find ripper!')
+		1
+	else:
+		# Make sure the detected line is not the illegal one.
+		if illegal_start_pos == start_pos:
+			start_pos = text_box.find(substring, start_pos + 1)
+
+		ripper_text = text_box[start_pos + len(substring):text_box.find('\n', start_pos)].strip()
+		# remove the '=' at the beginning
+		ripper_text = ripper_text[1:]
+
+		# Debugging to check if invalid ripper text is obtained.
+		if (ripper_text.startswith('abel=')):
+			print (text_box)
+			print (ripper_text)
+			print (start_pos, illegal_start_pos)
+			quit()
+
+		# If '<ref>' tags exist, remove them
+		if ('<ref>' in ripper_text):
+			ripper_text = ripper_text[:ripper_text.find('<ref>')].strip()
+		# Else, match for double square braces.
+		# (Exclude cases where it states "see [[x", as these are usually links to a another page)
+		if ('see [[' not in ripper_text) and ('#' not in ripper_text) and ('<!--' not in ripper_text) and ('<nowiki' not in ripper_text):
+			# matches = re.search(r'(|.*author*=*.)\[\[(.*?)\]\]', ripper_text)
+			matches = re.finditer(r'(|.*' + key + '*=*.)\[\[(.*?)\]\]', ripper_text)
+			if (matches is not None):
+				matchFound = False
+
+				# If matches are found, add them all
+				for match in matches:
+					matchFound = True
+					ripper = match.groups()[1]
+					alias = None
+					if ('|' in ripper):
+						split = ripper.split('|')
+						ripper = split[0]
+						alias = split[1]
+					
+					# Remove any artefacts from the name if they exist.
+					if (ripper.endswith('}}')):
+						ripper = ripper[:len(ripper) - 2]
+
+					ripper = run_sql_proc('usp_InsertRipper', (ripper, 0))
+					rippers[ripper] = alias
+
+				# If no match was found, add the line
+				if not matchFound and ripper_text != '':
+					# In case there is a formatting error and the table row or table end (| or }} characters) is not on a new line, find it and end the text there.
+					cutoff = ripper_text.find('|')
+					if cutoff == -1:
+						cutoff = ripper_text.find('}}')
+					if cutoff != -1:
+						ripper_text = ripper_text[:cutoff]
+
+					ripper = run_sql_proc('usp_InsertRipper', (ripper_text.strip(), 0))
+					rippers[ripper] = None
+			else:
+				ripper_text = ripper_text.strip()
+
+				if (ripper_text != ''):
+					ripper = run_sql_proc('usp_InsertRipper', (ripper_text, 0))
+					rippers[ripper] = None
+		
+	if len(rippers) == 0:
+		rippers = None
+	else:
+		rippers = json.dumps(rippers)
+
+	return rippers
+
 def get_fandom_data(text_box, metas, game):
 	game_name = None
 	track = None
@@ -522,62 +613,9 @@ def get_fandom_data(text_box, metas, game):
 		categories = json.dumps(categories)
 
 		# Rippers
-		rippers = {}
-		substring = '|author'
-		start_pos = text_box.find(substring)
-		if start_pos == -1:
-			substring = '| author'
-			start_pos = text_box.find(substring)
-		# If the author field is still not found, do not attempt to get it.
-		if (start_pos == -1):
-			print('Cannot find ripper!')
-		else:
-			ripper_text = text_box[start_pos + len(substring):text_box.find('\n', start_pos)].strip()
-			# remove the '=' at the beginning
-			ripper_text = ripper_text[1:]
-
-			# If '<ref>' tags exist, remove them
-			if ('<ref>' in ripper_text):
-				ripper_text = ripper_text[:ripper_text.find('<ref>')].strip()
-			# Else, match for double square braces.
-			# (Exclude cases where it states "see [[x", as these are usually links to a another page)
-			if ('see [[' not in ripper_text) and ('#' not in ripper_text) and ('<!--' not in ripper_text):
-				# matches = re.search(r'(|.*author*=*.)\[\[(.*?)\]\]', ripper_text)
-				matches = re.finditer(r'(|.*author*=*.)\[\[(.*?)\]\]', ripper_text)
-				if (matches is not None):
-					matchFound = False
-
-					# If matches are found, add them all
-					for match in matches:
-						matchFound = True
-						ripper = match.groups()[1]
-						alias = None
-						if ('|' in ripper):
-							split = ripper.split('|')
-							ripper = split[0]
-							alias = split[1]
-
-						ripper = run_sql_proc('usp_InsertRipper', (ripper, 0))
-						rippers[ripper] = alias
-
-					# If no match was found, add the line
-					if not matchFound and ripper_text != '':
-						# In case there is a formatting error and the table row (| character) is not on a new line, find it and end the text there.
-						cutoff = ripper_text.find('|')
-						if cutoff != -1:
-							ripper_text = ripper_text[:cutoff]
-						
-						ripper = run_sql_proc('usp_InsertRipper', (ripper_text.strip(), 0))
-						rippers[ripper] = None
-				else:
-					ripper_text = ripper_text.strip()
-					if (ripper_text != ''):
-						ripper = run_sql_proc('usp_InsertRipper', (ripper_text.strip(), 0))
-						rippers[ripper] = None
-			
-			# if len(rippers) == 0:
-			# 	print ("No rippers found!")
-		rippers = json.dumps(rippers)
+		rippers = get_ripper(text_box, 'author', 'author label')
+		if (rippers is None):
+			rippers = get_ripper(text_box, 'ripper', 'ripper label')
 
 		# Jokes
 		jokes = parse_jokes(text_box, metas)
