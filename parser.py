@@ -676,7 +676,7 @@ def parse_worksheet(sheet_name, channel, metas):
 
 						# print(name, "|", game,"|", game_name)
 						# Strip the game name from the rip name
-						name = name.replace("- " + game_name, '').strip()
+						name = name.replace("- " + str(game_name), '').strip()
 
 						# print(name, track, None, date, length, url, alt_url, game, channel, genres, jokes, rippers)
 
