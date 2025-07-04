@@ -634,6 +634,9 @@ def parse_worksheet(sheet_name, channel, metas):
 
 	for row in ws.iter_rows(min_row=2 + row_start, max_col=6,max_row=row_start + rows + 1,values_only=True):
 		# print(rowNum)
+		if (rowNum % 500 == 0):
+			print("Up to: " + str(rowNum))
+
 		name_search = re.search(r', "(.*)"', row[1])
 		if name_search is None:
 			print ("Malformed cell! Row:", rowNum)
