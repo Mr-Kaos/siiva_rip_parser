@@ -22,3 +22,7 @@ For this too to work, you will need the following:
 If the spreadsheet file is in the same directory as `parser.py`, then you can simply run the parser using `python3 parser.py`.
 
 Also make sure the `meta_jokes.csv` file exists in the root as well. This is essentially a dictionary the parser uses to find jokes in the fandom pages.
+
+## Attributions
+
+This tool uses a slightly altered copy of the [fandom-wiki](https://github.com/GOLEM-lab/fandom-wiki) extractor file, which you can view the [original copy here](https://github.com/GOLEM-lab/fandom-wiki/blob/main/src/fandom_extraction/fandom_extract.py).
