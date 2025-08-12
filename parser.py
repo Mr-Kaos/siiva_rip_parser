@@ -586,7 +586,7 @@ def get_fandom_data(text_box, metas, game):
 				game_name = game_name.strip()
 
 				if len(game_name) <= 256 and len(game_name) > 0:
-					game = run_sql_proc('usp_InsertGame', (game_name, None, 0))
+					game = run_sql_proc('usp_InsertGame', (game_name, None, 0, 0))
 				else:
 					game_name = None
 
@@ -668,7 +668,7 @@ def parse_worksheet(sheet_name, channel, metas):
 						if (game_name is not None):
 							game_name = game_name.group(1).strip()
 							if len(game_name) > 0:
-								game = run_sql_proc('usp_InsertGame', (game_name, None, 0))
+								game = run_sql_proc('usp_InsertGame', (game_name, None, 0, 0))
 
 						track, alt_url, genres, jokes, rippers, alt_game, alt_game_name = get_fandom_data(text_box, metas, game)
 
